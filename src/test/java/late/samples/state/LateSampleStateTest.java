@@ -29,7 +29,7 @@ public class LateSampleStateTest {
     LateSamplesState.Event event = new LateSamplesState.Event();
     event.key = "key1";
     event.value = "one";
-    event.timestamp = Instant.now();
+    event.timestamp = Instant.now().getMillis();
 
     KV<String, Iterable<LateSamplesState.Event>> res =
         KV.of(event.key, Collections.singletonList(event));
@@ -52,7 +52,7 @@ public class LateSampleStateTest {
     MutableDateTime dt = Instant.now().toMutableDateTime();
     dt.setYear(1984);
 
-    event.timestamp = dt.toInstant();
+    event.timestamp = dt.toInstant().getMillis();
 
     TestStream<LateSamplesState.Event> eventStream =
         TestStream.create(AvroCoder.of(LateSamplesState.Event.class))
@@ -80,7 +80,7 @@ public class LateSampleStateTest {
     MutableDateTime dt = Instant.now().toMutableDateTime();
     dt.setYear(1984);
 
-    event1.timestamp = dt.toInstant();
+    event1.timestamp = dt.toInstant().getMillis();
 
     LateSamplesState.Event event2 = new LateSamplesState.Event();
     event2.key = "key2";
@@ -89,7 +89,7 @@ public class LateSampleStateTest {
     dt.setYear(2019);
     dt.addDays(-3);
 
-    event2.timestamp = dt.toInstant();
+    event2.timestamp = dt.toInstant().getMillis();
 
     TestStream<LateSamplesState.Event> eventStream =
         TestStream.create(AvroCoder.of(LateSamplesState.Event.class))

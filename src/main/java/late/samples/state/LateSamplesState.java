@@ -4,7 +4,7 @@
 package late.samples.state;
 
 import com.google.gson.Gson;
-import java.util.Arrays;
+import java.util.Iterator;
 import java.util.Objects;
 import java.util.stream.StreamSupport;
 import org.apache.beam.sdk.Pipeline;
@@ -40,7 +40,7 @@ public class LateSamplesState {
   public static class Event {
     String key;
     String value;
-    Instant timestamp;
+    Long timestamp;
 
     @Override
     public boolean equals(Object o) {
@@ -67,7 +67,7 @@ public class LateSamplesState {
           + value
           + '\''
           + ", timestamp="
-          + timestamp
+          + new Instant(timestamp)
           + '}';
     }
   }
@@ -97,9 +97,19 @@ public class LateSamplesState {
 
       return input
           .apply(PubsubIO.readMessages().fromTopic(topic))
+          .apply(MapElements.into(TypeDescriptors.strings()).via(m -> new String(m.getPayload())))
+          .apply(
+              ParDo.of(
+                  new DoFn<String, String>() {
+                    @ProcessElement
+                    public void process(ProcessContext c) {
+                      logger.info(c.element());
+                      c.output(c.element());
+                    }
+                  }))
           .apply(
               MapElements.into(TypeDescriptor.of(Event.class))
-                  .via(m -> new Gson().fromJson(new String(m.getPayload()), Event.class)));
+                  .via(m -> new Gson().fromJson(m, Event.class)));
     }
   }
 
@@ -124,16 +134,51 @@ public class LateSamplesState {
       PCollection<KV<String, Event>> windowed =
           input
               .apply(
-                  WithTimestamps.of((Event e) -> e.timestamp)
+                  WithTimestamps.of((Event e) -> new Instant(e.timestamp))
                       .withAllowedTimestampSkew(new Duration(Long.MAX_VALUE)))
               .apply(window)
               .apply(WithKeys.of((Event e) -> e.key).withKeyType(TypeDescriptors.strings()));
 
       PCollection<KV<String, Iterable<Event>>> grouped = windowed.apply(GroupByKey.create());
+      grouped.apply(
+          ParDo.of(
+              new DoFn<KV<String, Iterable<Event>>, String>() {
+                @ProcessElement
+                public void process(ProcessContext c, BoundedWindow window) {
+                  logger.info(formatEvents("GROUP", window, c.element().getValue()));
+                }
+              }));
+
       PCollection<KV<String, Iterable<Event>>> stateful =
           windowed.apply(ParDo.of(new StatefulGrouping()));
 
       return PCollectionTuple.of(groupOutput, grouped).and(stateOutput, stateful);
+    }
+
+    private String formatEvents(
+        String context, BoundedWindow window, Iterable<Event> currentEvents) {
+
+      StringBuilder sb =
+          new StringBuilder()
+              .append("context=")
+              .append(context)
+              .append(" max_ts=")
+              .append(window.maxTimestamp());
+
+      Iterator<Event> it = currentEvents.iterator();
+      if (!it.hasNext()) {
+        sb.append(" EMPTY");
+        return sb.toString();
+      }
+
+      String key = it.next().key;
+
+      sb.append(" key=")
+          .append(key)
+          .append(" count=")
+          .append(StreamSupport.stream(currentEvents.spliterator(), false).count());
+
+      return sb.toString();
     }
 
     private class StatefulGrouping extends DoFn<KV<String, Event>, KV<String, Iterable<Event>>> {
@@ -150,40 +195,20 @@ public class LateSamplesState {
           @TimerId("timer") Timer timer,
           BoundedWindow window) {
 
-        Event event = c.element().getValue();
+        events.add(c.element().getValue());
         Iterable<Event> currentEvents = events.read();
-        logger.info(
-            String.format(
-                "%s event=%s state=%s", window.toString(), event, formatEvents(currentEvents)));
+        logger.info(formatEvents("STATE", window, currentEvents));
 
-        events.add(event);
         c.output(KV.of(c.element().getKey(), events.read()));
 
         timer.offset(Duration.standardMinutes(1)).setRelative();
-      }
-
-      private String formatEvents(Iterable<Event> currentEvents) {
-        StringBuilder sb = new StringBuilder();
-
-        StreamSupport.stream(currentEvents.spliterator(), false)
-            .forEach(event -> sb.append(event.toString()));
-
-        String res = sb.toString();
-
-        if (res.equals("")) {
-          res = "EMPTY";
-        }
-
-        return res;
       }
 
       @OnTimer("timer")
       public void onTimer(
           OnTimerContext c, @StateId("elements_bag") BagState<Event> events, BoundedWindow window) {
         Iterable<Event> currentEvents = events.read();
-        logger.info(
-            String.format(
-                "%s event=%s state=%s", window.toString(), "timer", formatEvents(currentEvents)));
+        logger.info(formatEvents("STATE TIMER", window, currentEvents));
       }
     }
   }
