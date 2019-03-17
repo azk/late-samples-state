@@ -6,6 +6,7 @@ package late.samples.state;
 import com.google.gson.Gson;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.stream.StreamSupport;
 
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
@@ -14,17 +15,19 @@ import org.apache.beam.sdk.io.gcp.pubsub.PubsubIO;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
-import org.apache.beam.sdk.state.BagState;
-import org.apache.beam.sdk.state.StateSpec;
-import org.apache.beam.sdk.state.StateSpecs;
+import org.apache.beam.sdk.state.*;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.windowing.*;
 import org.apache.beam.sdk.transforms.windowing.Window;
 import org.apache.beam.sdk.values.*;
 import org.joda.time.Duration;
 import org.joda.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class LateSamplesState {
+
+  private final static Logger logger = LoggerFactory.getLogger(LateSamplesState.class);
 
   public interface Options extends PipelineOptions {
 
@@ -54,6 +57,15 @@ public class LateSamplesState {
     @Override
     public int hashCode() {
       return Objects.hash(key, value, timestamp);
+    }
+
+    @Override
+    public String toString() {
+      return "{" +
+              "key='" + key + '\'' +
+              ", value='" + value + '\'' +
+              ", timestamp=" + timestamp +
+              '}';
     }
   }
 
@@ -123,10 +135,45 @@ public class LateSamplesState {
       private final StateSpec<BagState<Event>> EventBagSpec =
               StateSpecs.bag();
 
+      @TimerId("timer")
+      private final TimerSpec sessionExpiredSpec = TimerSpecs.timer(TimeDomain.PROCESSING_TIME);
+
       @ProcessElement
-      public void process(ProcessContext c, @StateId("elements_bag") BagState<Event> samples) {
-        samples.add(c.element().getValue());
-        c.output(KV.of(c.element().getKey(), samples.read()));
+      public void process(ProcessContext c,
+                          @StateId("elements_bag") BagState<Event> events,
+                          @TimerId("timer") Timer timer,
+                          BoundedWindow window) {
+
+        Event event = c.element().getValue();
+        Iterable<Event> currentEvents = events.read();
+        logger.info(String.format("%s event=%s state=%s", window.toString(), event, formatEvents(currentEvents)));
+
+        events.add(event);
+        c.output(KV.of(c.element().getKey(), events.read()));
+
+        timer.offset(Duration.standardMinutes(1)).setRelative();
+      }
+
+      private String formatEvents(Iterable<Event> currentEvents) {
+        StringBuilder sb = new StringBuilder();
+
+        StreamSupport.stream(currentEvents.spliterator(), false).forEach(event -> sb.append(event.toString()));
+
+        String res = sb.toString();
+
+        if (res.equals("")) {
+          res = "EMPTY";
+        }
+
+        return res;
+      }
+
+      @OnTimer("timer")
+      public void onTimer(OnTimerContext c,
+                          @StateId("elements_bag") BagState<Event> events,
+                          BoundedWindow window) {
+        Iterable<Event> currentEvents = events.read();
+        logger.info(String.format("%s event=%s state=%s", window.toString(), "timer", formatEvents(currentEvents)));
       }
     }
   }
