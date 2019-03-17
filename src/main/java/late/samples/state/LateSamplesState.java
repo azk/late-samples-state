@@ -7,7 +7,6 @@ import com.google.gson.Gson;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.stream.StreamSupport;
-
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.coders.DefaultCoder;
@@ -27,7 +26,7 @@ import org.slf4j.LoggerFactory;
 
 public class LateSamplesState {
 
-  private final static Logger logger = LoggerFactory.getLogger(LateSamplesState.class);
+  private static final Logger logger = LoggerFactory.getLogger(LateSamplesState.class);
 
   public interface Options extends PipelineOptions {
 
@@ -43,15 +42,14 @@ public class LateSamplesState {
     String value;
     Instant timestamp;
 
-
     @Override
     public boolean equals(Object o) {
       if (this == o) return true;
       if (o == null || getClass() != o.getClass()) return false;
       Event event = (Event) o;
-      return key.equals(event.key) &&
-              value.equals(event.value) &&
-              timestamp.equals(event.timestamp);
+      return key.equals(event.key)
+          && value.equals(event.value)
+          && timestamp.equals(event.timestamp);
     }
 
     @Override
@@ -61,21 +59,26 @@ public class LateSamplesState {
 
     @Override
     public String toString() {
-      return "{" +
-              "key='" + key + '\'' +
-              ", value='" + value + '\'' +
-              ", timestamp=" + timestamp +
-              '}';
+      return "{"
+          + "key='"
+          + key
+          + '\''
+          + ", value='"
+          + value
+          + '\''
+          + ", timestamp="
+          + timestamp
+          + '}';
     }
   }
 
   public static void main(String[] args) {
+    PipelineOptionsFactory.register(Options.class);
     Options options = PipelineOptionsFactory.fromArgs(args).as(Options.class);
 
     Pipeline pipeline = Pipeline.create(options);
 
-    PCollection<Event> events =
-        pipeline.apply("ingest", new IngestFromPubsub(options.getTopic()));
+    PCollection<Event> events = pipeline.apply("ingest", new IngestFromPubsub(options.getTopic()));
 
     events.apply(new WindowGroupState());
 
@@ -96,7 +99,7 @@ public class LateSamplesState {
           .apply(PubsubIO.readMessages().fromTopic(topic))
           .apply(
               MapElements.into(TypeDescriptor.of(Event.class))
-                  .via(m -> new Gson().fromJson(Arrays.toString(m.getPayload()), Event.class)));
+                  .via(m -> new Gson().fromJson(new String(m.getPayload()), Event.class)));
     }
   }
 
@@ -118,35 +121,40 @@ public class LateSamplesState {
               .withAllowedLateness(Duration.standardDays(7))
               .accumulatingFiredPanes();
 
-      PCollection<KV<String, Event>> windowed = input
-              .apply(WithTimestamps.of((Event e) -> e.timestamp)
+      PCollection<KV<String, Event>> windowed =
+          input
+              .apply(
+                  WithTimestamps.of((Event e) -> e.timestamp)
                       .withAllowedTimestampSkew(new Duration(Long.MAX_VALUE)))
               .apply(window)
-              .apply(WithKeys.of((Event e)->e.key).withKeyType(TypeDescriptors.strings()));
+              .apply(WithKeys.of((Event e) -> e.key).withKeyType(TypeDescriptors.strings()));
 
       PCollection<KV<String, Iterable<Event>>> grouped = windowed.apply(GroupByKey.create());
-      PCollection<KV<String, Iterable<Event>>> stateful = windowed.apply(ParDo.of(new StatefulGrouping()));
+      PCollection<KV<String, Iterable<Event>>> stateful =
+          windowed.apply(ParDo.of(new StatefulGrouping()));
 
       return PCollectionTuple.of(groupOutput, grouped).and(stateOutput, stateful);
     }
 
     private class StatefulGrouping extends DoFn<KV<String, Event>, KV<String, Iterable<Event>>> {
       @StateId("elements_bag")
-      private final StateSpec<BagState<Event>> EventBagSpec =
-              StateSpecs.bag();
+      private final StateSpec<BagState<Event>> EventBagSpec = StateSpecs.bag();
 
       @TimerId("timer")
       private final TimerSpec sessionExpiredSpec = TimerSpecs.timer(TimeDomain.PROCESSING_TIME);
 
       @ProcessElement
-      public void process(ProcessContext c,
-                          @StateId("elements_bag") BagState<Event> events,
-                          @TimerId("timer") Timer timer,
-                          BoundedWindow window) {
+      public void process(
+          ProcessContext c,
+          @StateId("elements_bag") BagState<Event> events,
+          @TimerId("timer") Timer timer,
+          BoundedWindow window) {
 
         Event event = c.element().getValue();
         Iterable<Event> currentEvents = events.read();
-        logger.info(String.format("%s event=%s state=%s", window.toString(), event, formatEvents(currentEvents)));
+        logger.info(
+            String.format(
+                "%s event=%s state=%s", window.toString(), event, formatEvents(currentEvents)));
 
         events.add(event);
         c.output(KV.of(c.element().getKey(), events.read()));
@@ -157,7 +165,8 @@ public class LateSamplesState {
       private String formatEvents(Iterable<Event> currentEvents) {
         StringBuilder sb = new StringBuilder();
 
-        StreamSupport.stream(currentEvents.spliterator(), false).forEach(event -> sb.append(event.toString()));
+        StreamSupport.stream(currentEvents.spliterator(), false)
+            .forEach(event -> sb.append(event.toString()));
 
         String res = sb.toString();
 
@@ -169,11 +178,12 @@ public class LateSamplesState {
       }
 
       @OnTimer("timer")
-      public void onTimer(OnTimerContext c,
-                          @StateId("elements_bag") BagState<Event> events,
-                          BoundedWindow window) {
+      public void onTimer(
+          OnTimerContext c, @StateId("elements_bag") BagState<Event> events, BoundedWindow window) {
         Iterable<Event> currentEvents = events.read();
-        logger.info(String.format("%s event=%s state=%s", window.toString(), "timer", formatEvents(currentEvents)));
+        logger.info(
+            String.format(
+                "%s event=%s state=%s", window.toString(), "timer", formatEvents(currentEvents)));
       }
     }
   }

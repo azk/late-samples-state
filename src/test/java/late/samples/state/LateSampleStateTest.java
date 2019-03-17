@@ -5,7 +5,7 @@ package late.samples.state;
 
 import static org.junit.Assert.*;
 
-import org.apache.beam.model.pipeline.v1.RunnerApi;
+import java.util.Collections;
 import org.apache.beam.sdk.coders.AvroCoder;
 import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.testing.TestPipeline;
@@ -20,12 +20,9 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
-import java.util.Collections;
-
 @RunWith(JUnit4.class)
 public class LateSampleStateTest {
-  @Rule
-  public TestPipeline p = TestPipeline.create();
+  @Rule public TestPipeline p = TestPipeline.create();
 
   @Test
   public void testOneEvent() {
@@ -34,9 +31,11 @@ public class LateSampleStateTest {
     event.value = "one";
     event.timestamp = Instant.now();
 
-    KV<String, Iterable<LateSamplesState.Event>> res = KV.of(event.key, Collections.singletonList(event));
+    KV<String, Iterable<LateSamplesState.Event>> res =
+        KV.of(event.key, Collections.singletonList(event));
 
-    PCollectionTuple output = p.apply(Create.of(event)).apply(new LateSamplesState.WindowGroupState());
+    PCollectionTuple output =
+        p.apply(Create.of(event)).apply(new LateSamplesState.WindowGroupState());
 
     PAssert.that(output.get(LateSamplesState.WindowGroupState.stateOutput)).containsInAnyOrder(res);
     PAssert.that(output.get(LateSamplesState.WindowGroupState.groupOutput)).containsInAnyOrder(res);
@@ -55,13 +54,14 @@ public class LateSampleStateTest {
 
     event.timestamp = dt.toInstant();
 
-    TestStream<LateSamplesState.Event> eventStream  = TestStream
-            .create(AvroCoder.of(LateSamplesState.Event.class))
+    TestStream<LateSamplesState.Event> eventStream =
+        TestStream.create(AvroCoder.of(LateSamplesState.Event.class))
             .advanceWatermarkTo(Instant.now())
             .addElements(event)
             .advanceWatermarkToInfinity();
 
-    KV<String, Iterable<LateSamplesState.Event>> res = KV.of(event.key, Collections.singletonList(event));
+    KV<String, Iterable<LateSamplesState.Event>> res =
+        KV.of(event.key, Collections.singletonList(event));
 
     PCollectionTuple output = p.apply(eventStream).apply(new LateSamplesState.WindowGroupState());
 
@@ -91,14 +91,15 @@ public class LateSampleStateTest {
 
     event2.timestamp = dt.toInstant();
 
-    TestStream<LateSamplesState.Event> eventStream  = TestStream
-            .create(AvroCoder.of(LateSamplesState.Event.class))
+    TestStream<LateSamplesState.Event> eventStream =
+        TestStream.create(AvroCoder.of(LateSamplesState.Event.class))
             .advanceWatermarkTo(Instant.now())
             .addElements(event1)
             .addElements(event2)
             .advanceWatermarkToInfinity();
 
-    KV<String, Iterable<LateSamplesState.Event>> res = KV.of(event2.key, Collections.singletonList(event2));
+    KV<String, Iterable<LateSamplesState.Event>> res =
+        KV.of(event2.key, Collections.singletonList(event2));
 
     PCollectionTuple output = p.apply(eventStream).apply(new LateSamplesState.WindowGroupState());
 
