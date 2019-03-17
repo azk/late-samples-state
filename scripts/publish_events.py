@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
 import time
 import json
+from os import environ
 from google.cloud import pubsub_v1
 
 publisher = pubsub_v1.PublisherClient()
-topic_path = publisher.topic_path("staging-eabb77f6",  "late-samples-state-test")
+topic_path = publisher.topic_path(environ['GCP_PROJECT'],  environ['PUBSUB_TOPIC'])
 
 def _create_event(key, val, ts=None, now_offset=None):
     if not ts:

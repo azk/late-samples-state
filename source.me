@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+# export GCP_PROJECT=<your_project_here>
+# export PUBSUB_TOPIC=<your_pubsub_topic_here>
+
+# optionally start local pubsub emulator
+# gcloud beta emulators start
+# $(gcloud beta emulators pubsub env-init)
+
+run_local_with_emulator() {
+    ./build/install/late-samples-state/bin/late-samples-state \
+    --project="$GCP_PROJECT" --topic="projects/$GCP_PROJECT/topics/$PUBSUB_TOPIC" \
+    --pubsubRootUrl="http://localhost:8085"
+
+}
+
+deploy_to_dataflow() {
+    ./build/install/late-samples-state/bin/late-samples-state --runner=DataflowRunner \
+    --project="$GCP_PROJECT" --topic="projects/$GCP_PROJECT/topics/$PUBSUB_TOPIC" \
+    --jobName="late-samples-state-test" --workerMachineType="n1-standard-1"
+}
+
+create_topic() {
+    python scripts/create_topic.py
+}
+
+publish_events() {
+    python scripts/publish_events.py
+}
